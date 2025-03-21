@@ -86,7 +86,7 @@ export function addCommand(program: Command) {
       const sourceTx = await srcProvider!.getTransactionReceipt(tx_hash);
       const depositBlockNumber = sourceTx.blockNumber;
 
-      const depositLog = sourceTx.logs.find((log) => {
+      const logs = sourceTx.logs.filter((log) => {
         try {
           const parsedLog = bridgeInterface.parseLog(log);
           console.log(parsedLog);
@@ -101,40 +101,42 @@ export function addCommand(program: Command) {
         }
       });
 
-      if (!depositLog) {
+      if (!logs.length) {
         throw Error("Couldn't find deposit log");
       }
 
-      const parsedDepositLog = bridgeInterface.parseLog(depositLog);
-      const depositId = parsedDepositLog.args.id;
-      const token = parsedDepositLog.args.token;
-      const amount = parsedDepositLog.args.amount;
+      for (const log of logs) {
+        const parsedLog = bridgeInterface.parseLog(log);
+        const depositId = parsedLog.args.id;
+        const token = parsedLog.args.token;
+        const amount = parsedLog.args.amount;
 
-      console.log('Waiting for state oracle update...');
-      const stateOracle = new Contract(dstContracts.STATE_ORACLE, STATE_ORACLE_ABI, dstProvider);
-      await waitForStateUpdate(depositBlockNumber, stateOracle);
+        console.log('Waiting for state oracle update...');
+        const stateOracle = new Contract(dstContracts.STATE_ORACLE, STATE_ORACLE_ABI, dstProvider);
+        await waitForStateUpdate(depositBlockNumber, stateOracle);
 
-      console.log('Generating proof...');
-      const lastBlockNum: BigNumber = await stateOracle.lastBlockNum();
-      const lastBlockNumWithoutLeadingZeros = '0x' + lastBlockNum.toHexString().slice(2).replace(/^0+/, '');
-      console.log('Last block number:', lastBlockNumWithoutLeadingZeros);
-      const proof = await generateProof(
-        depositId,
-        srcProvider,
-        srcContracts.BRIDGE,
-        slotIndex,
-        lastBlockNumWithoutLeadingZeros
-      );
+        console.log('Generating proof...');
+        const lastBlockNum: BigNumber = await stateOracle.lastBlockNum();
+        const lastBlockNumWithoutLeadingZeros = '0x' + lastBlockNum.toHexString().slice(2).replace(/^0+/, '');
+        console.log('Last block number:', lastBlockNumWithoutLeadingZeros);
+        const proof = await generateProof(
+          depositId,
+          srcProvider,
+          srcContracts.BRIDGE,
+          slotIndex,
+          lastBlockNumWithoutLeadingZeros
+        );
 
-      console.log('Claiming tokens with proof');
-      const walletPrivateKey = process.env.PRIVATE_KEY ?? '';
-      const wallet = new Wallet(walletPrivateKey, dstProvider);
-      const dstBridgeContract = new Contract(bridge, BRIDGE_ABI, wallet);
+        console.log('Claiming tokens with proof');
+        const walletPrivateKey = process.env.PRIVATE_KEY ?? '';
+        const wallet = new Wallet(walletPrivateKey, dstProvider);
+        const dstBridgeContract = new Contract(bridge, BRIDGE_ABI, wallet);
 
-      const tx = await dstBridgeContract.claim(depositId, token, amount, proof);
-      console.log('Claim transaction was sent:', tx.hash);
+        const tx = await dstBridgeContract.claim(depositId, token, amount, proof);
+        console.log('Claim transaction was sent:', tx.hash);
 
-      await tx.wait();
-      console.log('Token claiming succeed!');
+        await tx.wait();
+        console.log('Token claiming succeed!');
+      }
     });
 }
